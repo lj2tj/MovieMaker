@@ -4,6 +4,9 @@
     $ source .venv/bin/activate
     $ uv sync
 
+    # for windows
+    $ uv venv activate
+
 # 程序入口
 run.py
 

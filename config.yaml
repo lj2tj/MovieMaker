@@ -5,3 +5,17 @@ font_size: 70
 watermark: ''
 round_per_second: 1
 audio_volume_boost: 2.0  # 音频音量增强倍数 (1.0 = 原音量, 2.0 = 2倍音量, 3.0 = 3倍音量)
+
+# AI 配置
+ai_helper: openai  # 或 openai
+
+# Ollama 配置
+ollama_host: http://localhost:11434
+ollama_chat_model: qwen3:8b
+ollama_image_model: llama3.2-vision
+
+# OpenAI 配置
+openai_api_key: 'sk-'
+openai_api_base_url: 'https://api.deepseek.com'
+openai_chat_model: 'deepseek-v4-flash'
+openai_image_model: 'deepseek-v4-flash'

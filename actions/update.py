@@ -18,8 +18,6 @@ def Do(action: any):
         素材: 水浒传/人物/鲁智深1.png
         角度: 左右
         透明度: 0.2
-        字幕: #Kangkang, Male
-            - ['','', '啪啪啪', 'resources/ShengYin/打耳光.mp3']
         渲染顺序: 2
     """
     keys = action.obj.keys()
