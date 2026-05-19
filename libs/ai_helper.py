@@ -29,7 +29,7 @@ class MovieMakerAIHelper:
         self.config = self._load_config()
         
         # Determine which AI platform to use
-        self.ai_platform = self.config.get('ai_helper', 'ollama').lower()
+        self.ai_platform = self.config.get('ai_helper', 'ollama').lower().strip()
         print(f"使用 AI 平台: {self.ai_platform}")
         
         # Initialize client based on platform
@@ -56,9 +56,45 @@ class MovieMakerAIHelper:
             self.image_model = os.getenv('OLLAMA_IMAGE_MODEL', self.config.get('ollama_image_model', 'llama3'))
             print(f"Ollama client initialized: {ollama_host}, model: {self.chat_model}, image model: {self.image_model}")
         
-        # Common attributes
-        self.examples = self._load_examples()
-        self.actions = [
+        # Common templates
+        self.scenario_template = {
+                '名字': '场景名称',
+                '焦点': '中心',
+                '比例': 1,
+                '天色': None,
+                '背景': 'resources/背景/场景1.png',
+                '背景音乐': None,
+                '角色': [],
+                '活动': []
+            }
+        self.activity_template = {
+            '名字': '活动名称',
+            '描述': '活动描述',
+            '持续时间': None,
+            '背景音乐': None,
+            '背景音乐模式': None,
+            '字幕': [],
+            '字幕颜色': None,
+            '字幕样式': 'normal',
+            '发音人': 'x4_lingfeichen_emo',
+            '发音人引擎': 'chat',
+            'fps': None,
+            '动作': []
+        }
+        self.character_template = {
+            '名字': '角色名称',
+            '素材': 'resources/SuCai/JueSe/角色.png',
+            '位置': [0.4, 0.5],
+            '大小': [180, 260],
+            '发音人': 'x4_lingfeichen_emo',
+            '发音人引擎': 'chat',
+            '角色名牌': '是',
+            '显示': '是',
+            '透明度': 1,
+            '图层': 0,
+            '角度': 0
+        }
+        self.actions_templates = [
             {'名称': 'BGM', '字幕': [['', '', 'bgm', 'resources/ShengYin/BGM/xxx.mp3']], '渲染顺序': 0},
             {'名称': '镜头', '角色': '角色名称', '持续时间': '2秒', '焦点': [0.5, 0.5], '变化': 0.3, '字幕': [['', '', '台词', 'resources/ShengYin/xxx.mp3']], '渲染顺序': 1},
             {'名称': '消失', '角色': '角色名称', '渲染顺序': 2},
@@ -81,18 +117,6 @@ class MovieMakerAIHelper:
             with open(config_path, 'r', encoding='utf-8') as f:
                 return yaml.safe_load(f)
         return {}
-    
-    def _load_examples(self):
-        """Load existing config examples for reference"""
-        examples = []
-        demo_dir = "demo"
-        if os.path.exists(demo_dir):
-            for file in os.listdir(demo_dir):
-                if file.endswith('.yaml'):
-                    with open(os.path.join(demo_dir, file), 'r', encoding='utf-8') as f:
-                        examples.append(yaml.safe_load(f))
-            return examples[:2]
-        return []
     
     def _chat_completion(self, messages: List[Dict[str, str]], temperature: float = 0.5, **kwargs) -> str:
         """
@@ -126,48 +150,6 @@ class MovieMakerAIHelper:
             )
             return response['message']['content']
     
-    def generate_scenario_from_description(self, scenario_description: str) -> Dict[str, Any]:
-        """
-        Generate scenario config from description
-        """
-        example = self.examples[0] if self.examples else {}
-
-        prompt = f"""
-        根据以下场景描述，生成MovieMaker兼容的YAML配置片段。
-
-        场景描述: {scenario_description}
-
-        参考配置示例:
-        {json.dumps(example, ensure_ascii=False, indent=2)}
-
-        请严格按照MovieMaker的配置格式生成，包含场景、角色、活动和动作等元素。
-        确保所有路径使用相对路径，并使用适当的坐标值（0-1之间表示百分比位置）。
-        为每个角色和活动生成合适的名称和描述。
-        """
-
-        system_content = """
-        你是一个MovieMaker配置文件专家。MovieMaker使用YAML格式定义视频场景，
-        包括背景、角色、活动和动作。你需要生成符合MovieMaker格式的YAML配置。
-
-        重要约束：
-        - 位置坐标使用[0-1]范围内的浮点数表示相对位置
-        - 大小使用像素值如[100, 150]
-        - 音频文件路径应指向适当的位置
-        - 每个场景包含背景、角色和活动
-        - 活动包含动作和字幕
-        """
-
-        try:
-            content = self._chat_completion([
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": prompt}
-            ], temperature=0.5)
-            
-            return yaml.safe_load(content)
-        except Exception as e:
-            print(f"生成场景配置失败: {e}")
-            return {}
-
     def extract_character(self, text: str, output_dir: str = "scripttemplate/角色") -> List[str]:
         """
         Extract characters from text
@@ -233,8 +215,13 @@ class MovieMakerAIHelper:
         then create multiple scenarios based on the plot.
         """
         prompt = f"""
-        理解项目支持的动作类型：{self.actions}
-        分析以下文字，浓缩故事情节。
+        # 理解MovieMaker的配置格式：
+        理解项目支持的场景模板：{self.scenario_template}
+        理解项目支持的活动模板：{self.activity_template}
+        理解项目支持的角色模板：{self.character_template}
+        理解项目支持的动作类型：{self.actions_templates}
+        
+        # 分析以下文字，浓缩故事情节。
         提取到的故事情节要足够简练，要包括背景、角色、台词、天气/时间、活动描述，能够覆盖文字的主要内容。
         如果有必要，可以增加特殊角色，如武器、道具、植物、载具、动物等。
         如果有必要，可以增加动作，如打斗、行进、对话，GIF等。
@@ -243,73 +230,413 @@ class MovieMakerAIHelper:
         各个场景之间适当使用转场动作
         并根据故事情节创建3-5个场景（scenario）。
 
-        文字内容：
-        {text}
-
-        每个场景需要包含：
-        - 场景名称
-        - 场景描述
-        - 主要角色（该场景中出现的角色）
-        - 背景场景（室内/室外/地点描述）
-        - 天气/时间
-        - 活动描述（该场景中发生的主要动作和对话）
-
-        请以Yaml格式返回场景列表，格式如下：
-场景: # 每个场景共用一套角色和背景，不同的场景使用不同的角色和背景
+        # 参考配置示例:
+场景: 
 -
-  背景: resources/水浒传/背景/城墙外.png
-  名字: '京城外'
+  背景: resources/水浒传/背景/纯黑.png
+  名字: '宋江饮毒酒'
   焦点: "中心"
   背景音乐: 
   比例: 1
   角色:
-    -
-      名字: 路人甲
-      素材: resources/水浒传/人物/配角/卡拉米1.png
-      位置: [0.2, 0.65]
-      大小: [80, 110]
-      显示: 是
-      图层: 0
-      角度: 45
-  活动:
   -
-    名字: "凄惨场景"
-    描述: 展示瘟疫盛行时的凄惨场景
-    背景音乐: 
-    持续时间: 
-    字幕: #Kangkang, Male
-    - ['','', '大宋仁宗时期', 'resources/水浒传/001/京城外/声音/大宋仁宗时期.wav']
-    字幕样式: list
-    字幕颜色: black
+    名字: 背景
+    素材: resources/水浒传/背景/凉亭2.jpeg
+    位置: [0, 0]
+    大小: [1080, 800]
+    显示: 是
+    图层: 
+    角度: 
+  -
+    名字: 宋江
+    素材: resources/水浒传/人物/宋江.png
+    位置: [0.35, 0.55]
+    大小: [150, 190]
     发音人: aisjiuxu
--
-  背景: resources/水浒传/背景/宫殿外.png
-  名字: '金殿外'
-  焦点: "中心"
-  背景音乐: 
-  比例: 1
-  角色:
+    发音人引擎: 
+    显示: 是
+    图层: 3
+    角度: 左右
+  -
+    名字: 仆人
+    素材: resources/水浒传/人物/配角/道童1.png
+    位置: [0.5, 0.5]
+    大小: [120, 160]
+    发音人: zh-CN-YunxiaNeural
+    发音人引擎: ttspro
+    显示: 是
+    图层: 2
+    角度: 
+  -
+    名字: 太监
+    素材: resources/水浒传/人物/配角/太监.png
+    位置: [0.45, 1]
+    大小: [160, 200]
+    发音人: zh-CN-YunjieNeural
+    发音人引擎: ttspro 
+    显示: 是
+    图层: 5
+    角度: 左右
+  -
+    名字: 酒
+    素材: resources/水浒传/素材/食物/酒.png
+    位置: [0.45, 1.05]
+    大小: [50, 80]
+    发音人: aisjiuxu
+    发音人引擎: 
+    显示: 
+    图层: 7
+    角度: 
+  -
+    名字: 酒杯
+    素材: resources/水浒传/素材/杂物/酒杯.png
+    位置: [0.44, 1.13]
+    大小: [30, 30]
+    发音人: aisjiuxu
+    发音人引擎: 
+    显示: 
+    图层: 7
+    角度: 
   活动:
   -
-    名字: "镜头移动"
-    描述: 金殿外，旁白
+    名字: "宋江饮毒酒"
+    描述: 宋江饮毒酒
     背景音乐: 
     持续时间: 
-    字幕:  #Kangkang, Male
+    字幕: 
     字幕颜色: black
     fps: 6
     动作:
     -
-      名称: 镜头
-      角色: 
-      持续时间: 
-      焦点: [0.5, 0.5]
-      变化: [1, 0.6]
+      名称: 说话
+      角色: 宋江
+      焦点: 
+      高亮: 
+      角色名牌: 是
+      变化: 
       字幕: 
-      - ['','', '此时', 'resources/水浒传/001/金殿外/声音/此时.wav']
+      - ['','', '这里唤做什么去处？', '水浒传/第三百三十二回/宋江饮毒酒/这里唤做什么去处？.mp3']
       渲染顺序: 0
+    -
+      名称: 说话
+      角色: 仆人
+      焦点: 
+      高亮: 
+      角色名牌: 是
+      变化: 
+      字幕: 
+      - ['','', '此地唤做蓼儿洼', '水浒传/第三百三十二回/宋江饮毒酒/此地唤做蓼儿洼.mp3']
+      - ['','', '是楚州最美的地方了', '水浒传/第三百三十二回/宋江饮毒酒/是楚州最美的地方了.mp3']
+      渲染顺序: 1
+    -
+      名称: 说话
+      角色: 宋江
+      焦点: 
+      高亮: 是
+      角色名牌: 是
+      变化: 
+      字幕: 
+      - ['','', '这里俨然是梁山泊水浒寨一般', '水浒传/第三百三十二回/宋江饮毒酒/这里俨然是梁山泊水浒寨一般.mp3']
+      - ['','', '若我死后', '水浒传/第三百三十二回/宋江饮毒酒/若我死后.mp3']
+      - ['','', '将这里作为阴宅', '水浒传/第三百三十二回/宋江饮毒酒/将这里作为阴宅.mp3']
+      - ['','', '岂不美哉？', '水浒传/第三百三十二回/宋江饮毒酒/岂不美哉？.mp3']
+      渲染顺序: 2
+    -
+      名称: 队列
+      角色: 太监 酒 酒杯
+      开始位置: 
+      开始角度: 
+      结束位置: 
+      x: 
+      y: -0.35
+      结束消失: 
+      延迟: 
+      比例: 
+      持续时间: 
+      字幕: 
+      - ['','', '', 'resources/ShengYin/跑步声.mp3']
+      方式: 
+      渲染顺序: 3
+    -
+      名称: 说话
+      角色: 太监
+      焦点: 
+      高亮: 
+      角色名牌: 是
+      变化: 
+      字幕: 
+      - ['','', '宋安抚听旨', '水浒传/第三百三十二回/宋江饮毒酒/宋安抚听旨.mp3']
+      渲染顺序: 4
+    -
+      名称: 行进
+      角色: 宋江
+      开始位置: 
+      结束位置: [0.35, 0.6]
+      结束消失: 
+      持续时间: 
+      延迟: 
+      比例: 
+      字幕: 
+      - ['','', '', 'resources/ShengYin/跑步声.mp3']
+      方式: 
+      渲染顺序: 5
+    -
+      名称: 说话
+      角色: 太监
+      焦点: 
+      高亮: 
+      角色名牌: 是
+      变化: 
+      字幕: 
+      - ['','', '陛下感念你平乱有功', '水浒传/第三百三十二回/宋江饮毒酒/陛下感念你平乱有功.mp3']
+      - ['','', '特送来御酒给你', '水浒传/第三百三十二回/宋江饮毒酒/特送来御酒给你.mp3']
+      - ['','', '还不快喝了吗', '水浒传/第三百三十二回/宋江饮毒酒/还不快喝了吗.mp3']
+      渲染顺序: 6
+    -
+      名称: 说话
+      角色: 宋江
+      焦点: 
+      高亮: 
+      角色名牌: 是
+      变化: 
+      字幕: 
+      - ['','', '谢陛下', '水浒传/第三百三十二回/宋江饮毒酒/谢陛下.mp3']
+      渲染顺序: 7
+    -
+      名称: 转身
+      角色: 酒
+      持续时间: 
+      角度: 45
+      字幕:
+      - ['','', '', 'resources/水浒传/声音/倒水的声音.mp3']
+      渲染顺序: 8
+    -
+      名称: 更新
+      角色: 酒
+      角度: 0
+      渲染顺序: 9
+    -
+      名称: 行进
+      角色: 酒杯
+      开始位置: 
+      结束位置: [0.38, 0.67]
+      比例: 
+      字幕: 
+      - ['','', '', 'resources/水浒传/声音/喝酒的声音.mp3']
+      方式: 
+      渲染顺序: 10
+    -
+      名称: 更新
+      角色: 酒杯
+      位置: [0.45, 0.8]
+      渲染顺序: 11
+    -
+      名称: 说话
+      角色: 宋江
+      焦点: 
+      高亮: 
+      角色名牌: 是
+      变化: 
+      字幕: 
+      - ['','', '谢陛下', '水浒传/第三百三十二回/宋江饮毒酒/谢陛下.mp3']
+      - ['','', '如此美酒还请天使一同享用', '水浒传/第三百三十二回/宋江饮毒酒/如此美酒还请天使一同享用.mp3']
+      渲染顺序: 12
+    -
+      名称: 说话
+      角色: 太监
+      焦点: 
+      高亮: 
+      角色名牌: 是
+      变化: 
+      字幕: 
+      - ['','', '', 'resources/水浒传/声音/嗯？.mp3']
+      - ['','', '我不会喝酒', '水浒传/第三百三十二回/宋江饮毒酒/我不会喝酒.mp3']
+      - ['','', '安抚使自己留着喝吧', '水浒传/第三百三十二回/宋江饮毒酒/安抚使自己留着喝吧.mp3']
+      - ['','', '告辞', '水浒传/第三百三十二回/宋江饮毒酒/告辞.mp3']
+      渲染顺序: 13
+    -
+      名称: 行进
+      角色: 太监
+      开始位置: 
+      结束位置: [0.45, 1]
+      结束消失: 是
+      持续时间: 
+      延迟: 
+      比例: 
+      字幕: 
+      - ['','', '', 'resources/ShengYin/跑步声.mp3']
+      方式: 
+      渲染顺序: 14
+    -
+      名称: 转场
+      背景: 背景  # 作为背景的角色名
+      方式: 旋转缩小  # 转场方式， 目前支持： 旋转缩小
+      字幕: 
+      - ['','', '', 'resources/水浒传/声音/回忆转场.mp3']
+      渲染顺序: 20
+-
+  背景: resources/水浒传/背景/纯黑.png
+  名字: '召唤李逵'
+  焦点: "中心"
+  背景音乐: 
+  比例: 1
+  角色:
+  -
+    名字: 背景
+    素材: resources/水浒传/背景/卧室3.png
+    位置: [0, 0]
+    大小: [1080, 800]
+    显示: 是
+    图层: 
+    角度: 
+  -
+    名字: 宋江
+    素材: resources/水浒传/人物/宋江3.png
+    位置: [0.65, 0.42]
+    大小: [150, 190]
+    发音人: aisjiuxu
+    发音人引擎: 
+    显示: 是
+    图层: 1
+    角度: 90
+  -
+    名字: 仆人
+    素材: resources/水浒传/人物/配角/道童2.png
+    位置: [-0.2, 0.5]
+    大小: [120, 160]
+    发音人: zh-CN-YunxiaNeural
+    发音人引擎: ttspro
+    显示: 
+    图层: 2
+    角度: 
+  活动:
+  -
+    名字: "召唤李逵"
+    描述: 召唤李逵
+    背景音乐: 
+    持续时间: 
+    字幕: 
+    字幕颜色: black
+    fps: 6
+    动作:
+    -
+      名称: gif
+      素材: resources/水浒传/素材/说话声/2.gif
+      字幕: 
+      - ['','', '', 'resources/水浒传/声音/痛苦.mp3']
+      位置: [0.35, 0.2]
+      图层: 100
+      角度: 
+      大小: [300, 300]
+      渲染顺序: 0
+    -
+      名称: 说话
+      角色: 宋江
+      焦点: 
+      高亮: 
+      角色名牌: 是
+      变化: 
+      字幕: 
+      - ['','', '自从今日喝了御酒之后', '水浒传/第三百三十二回/召唤李逵/自从今日喝了御酒之后.mp3']
+      - ['','', '腹痛难忍', '水浒传/第三百三十二回/召唤李逵/腹痛难忍.mp3']
+      - ['','', '怕是那酒中有毒', '水浒传/第三百三十二回/召唤李逵/怕是那酒中有毒.mp3']
+      - ['','', '我虽曾失身于罪人', '水浒传/第三百三十二回/召唤李逵/我虽曾失身于罪人.mp3']
+      - ['','', '却对朝廷不曾有半点异心', '水浒传/第三百三十二回/召唤李逵/却对朝廷不曾有半点异心.mp3']
+      - ['','', '如今天子听信谗言', '水浒传/第三百三十二回/召唤李逵/如今天子听信谗言.mp3']
+      - ['','', '赐我药酒', '水浒传/第三百三十二回/召唤李逵/赐我药酒.mp3']
+      - ['','', '我死不要紧', '水浒传/第三百三十二回/召唤李逵/我死不要紧.mp3']
+      - ['','', '只怕李逵知道后', '水浒传/第三百三十二回/召唤李逵/只怕李逵知道后.mp3']
+      - ['','', '再去哨聚山林', '水浒传/第三百三十二回/召唤李逵/再去哨聚山林.mp3']
+      - ['','', '把我等一世清名忠义之事坏了', '水浒传/第三百三十二回/召唤李逵/把我等一世清名忠义之事坏了.mp3']
+      - ['','', '看来只有这么办了', '水浒传/第三百三十二回/召唤李逵/看来只有这么办了.mp3']
+      渲染顺序: 1
+    -
+      名称: 更新
+      角色: 宋江
+      位置: [0.5, 0.5]
+      角度: 0
+      渲染顺序: 2
+    -
+      名称: 说话
+      角色: 宋江
+      焦点: 
+      高亮: 
+      角色名牌: 是
+      变化: 
+      字幕: 
+      - ['','', '来人', '水浒传/第三百三十二回/召唤李逵/来人.mp3']
+      渲染顺序: 4
+    -
+      名称: 行进
+      角色: 仆人
+      开始位置: 
+      开始角度: 
+      结束位置: [0.25, 0.65]
+      结束角度: 
+      结束消失: 
+      持续时间: 
+      比例: 
+      字幕: 
+      - ['','', '', 'resources/水浒传/声音/跑步声.mp3']
+      方式: 
+      渲染顺序: 5
+    -
+      名称: 说话
+      角色: 仆人
+      焦点: 
+      高亮: 
+      角色名牌: 是
+      变化: 
+      字幕: 
+      - ['','', '大人有什么事情？', '水浒传/第三百三十二回/召唤李逵/大人有什么事情？.mp3']
+      渲染顺序: 6
+    -
+      名称: 说话
+      角色: 宋江
+      焦点: 
+      高亮: 
+      角色名牌: 是
+      变化: 
+      字幕: 
+      - ['','', '你去润州把李逵叫来', '水浒传/第三百三十二回/召唤李逵/你去润州把李逵叫来.mp3']
+      - ['','', '就说我想他了', '水浒传/第三百三十二回/召唤李逵/就说我想他了.mp3']
+      渲染顺序: 7
+    -
+      名称: 说话
+      角色: 仆人
+      焦点: 
+      高亮: 
+      角色名牌: 是
+      变化: 
+      字幕: 
+      - ['','', '好的，大人', '水浒传/第三百三十二回/召唤李逵/好的，大人.mp3']
+      渲染顺序: 8
+    -
+      名称: 行进
+      角色: 仆人
+      开始位置: 
+      开始角度: 
+      结束位置: [-0.2, 0.65]
+      结束角度: 
+      结束消失: 是
+      持续时间: 
+      比例: 
+      字幕: 
+      - ['','', '', 'resources/ShengYin/跑步声.mp3']
+      方式: 
+      渲染顺序: 9
+    -
+      名称: 转场
+      背景: 背景  # 作为背景的角色名
+      方式: 旋转缩小  # 转场方式， 目前支持： 旋转缩小
+      字幕: 
+      - ['','', '', 'resources/水浒传/声音/回忆转场.mp3']
+      渲染顺序: 10
 
-        只返回Yaml格式，不要包含其他文字。
+        # 文字内容：
+        {text}
+
+        # 请以Yaml格式返回场景列表，只返回Yaml格式，不要包含其他文字。
         """
 
         try:
@@ -408,7 +735,7 @@ class MovieMakerAIHelper:
         Generate an image based on description
         """
         if self.client is None:
-            print(f"{self.ai_platform} client not initialized")
+            print(f"AI client not initialized")
             return False
         
         # Check if image already exists
@@ -425,29 +752,13 @@ class MovieMakerAIHelper:
             print(f"正在生成图片: {output_path}")
             print(f"描述: {description}")
             
-            if self.ai_platform == 'openai':
-                # OpenAI image generation
-                # Note: This is a placeholder - actual implementation depends on OpenAI's API
-                print("OpenAI image generation not yet implemented")
-                return False
-            else:
-                # Ollama image generation
-                response = self.client.chat(
-                    model=self.image_model,
-                    messages=[{
-                        'role': 'user',
-                        'content': f"what is the image",
-                        'images': ['resources\u6c34\u6d52\u4f20\u80cc\u666f\u57ce\u5899\u5916.png']
-                    }]
-                )
-                print(response)
-                return False
+            # TODO: Implement image generation logic
 
         except Exception as e:
             print(f"生成图片失败: {e}")
             return False
 
-    def extract_text_from_webpage(self, url: str, chunk_size: int = 2000, chunk_overlap: int = 200) -> Tuple[str, str]:
+    def extract_text_from_webpage(self, url: str) -> Tuple[str, str]:
         """
         Extract text from a webpage using Langchain.
         
@@ -496,7 +807,7 @@ def create_ai_helper() -> MovieMakerAIHelper:
 if __name__ == "__main__":
     helper = MovieMakerAIHelper()
     url = "https://www.gushicimingju.com/novel/shuihuzhuan/676.html"
-    title, story_text = helper.extract_text_from_webpage(url, header_template={})
+    title, story_text = helper.extract_text_from_webpage(url)
     
     if not title or not story_text:
         print("未能从网页提取标题或内容")
