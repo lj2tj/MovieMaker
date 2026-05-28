@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# -*- coding: utf-8 -*-
 import sys
 
 sys.path.append('../')
@@ -111,6 +112,22 @@ def add_subtitile(video, text, time_span):
     result.fps = clip.fps
     return result
 
+def extract_audio(video, audio_file, codec='aac'):
+    """
+    Extract audio from a video.
+
+    Params:
+        video: video file or file path
+        audio_file: audio file path
+    Return:
+        Returns a Clip instance
+    """
+    v = __get_video_clip(video)
+    if v.audio:
+        v.audio.write_audiofile(audio_file, codec=codec)
+    else:
+        logger.warning(f"视频文件{video}没有音频")
+
 def get_video_section(file_path, start, end):
     """
     Get video section.
@@ -217,7 +234,7 @@ def composite_videos(main_video, sub_video, sub_video_start_time = 0, sub_video_
 
     return CompositeVideoClip([main_clip, sub_clip], size=(config_reader.g_width, config_reader.g_height))
 
-def concatenate_videos(*videos):
+def concatenate_videos(videos):
     """
     Concatenate videos
 
